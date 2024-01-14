@@ -24,6 +24,8 @@ class BookingController extends Controller
      * BookingController constructor.
      * @param BookingRepository $bookingRepository
      */
+
+    //The use of dependency injection in the constructor is a good practice.
     public function __construct(BookingRepository $bookingRepository)
     {
         $this->repository = $bookingRepository;
@@ -36,13 +38,14 @@ class BookingController extends Controller
     public function index(Request $request)
     {
         if($user_id = $request->get('user_id')) {
-
             $response = $this->repository->getUsersJobs($user_id);
 
-        }
-        elseif($request->__authenticatedUser->user_type == env('ADMIN_ROLE_ID') || $request->__authenticatedUser->user_type == env('SUPERADMIN_ROLE_ID'))
-        {
+        } elseif($request->__authenticatedUser->user_type == env('ADMIN_ROLE_ID') || $request->__authenticatedUser->user_type == env('SUPERADMIN_ROLE_ID')) {
             $response = $this->repository->getAll($request);
+
+        } else {
+            // Added else condition in case of users not found.
+            return response('Users not found!');
         }
 
         return response($response);
@@ -192,63 +195,34 @@ class BookingController extends Controller
         return response($response);
     }
 
+    // Refactoring to reduce redundancy!
     public function distanceFeed(Request $request)
     {
         $data = $request->all();
 
-        if (isset($data['distance']) && $data['distance'] != "") {
-            $distance = $data['distance'];
-        } else {
-            $distance = "";
-        }
-        if (isset($data['time']) && $data['time'] != "") {
-            $time = $data['time'];
-        } else {
-            $time = "";
-        }
-        if (isset($data['jobid']) && $data['jobid'] != "") {
-            $jobid = $data['jobid'];
-        }
+        $distance = $this->getValue($data, 'distance');
+        $time = $this->getValue($data, 'time');
+        $jobid = $this->getValue($data, 'jobid');
+        $session = $this->getValue($data, 'session_time');
 
-        if (isset($data['session_time']) && $data['session_time'] != "") {
-            $session = $data['session_time'];
-        } else {
-            $session = "";
-        }
+        $flagged = $this->getFlaggedStatus($data);
+        $manually_handled = $this->getYesNoStatus($data['manually_handled']);
+        $by_admin = $this->getYesNoStatus($data['by_admin']);
+        $admincomment = $this->getValue($data, 'admincomment');
 
-        if ($data['flagged'] == 'true') {
-            if($data['admincomment'] == '') return "Please, add comment";
-            $flagged = 'yes';
-        } else {
-            $flagged = 'no';
-        }
-        
-        if ($data['manually_handled'] == 'true') {
-            $manually_handled = 'yes';
-        } else {
-            $manually_handled = 'no';
-        }
 
-        if ($data['by_admin'] == 'true') {
-            $by_admin = 'yes';
-        } else {
-            $by_admin = 'no';
-        }
-
-        if (isset($data['admincomment']) && $data['admincomment'] != "") {
-            $admincomment = $data['admincomment'];
-        } else {
-            $admincomment = "";
-        }
         if ($time || $distance) {
-
-            $affectedRows = Distance::where('job_id', '=', $jobid)->update(array('distance' => $distance, 'time' => $time));
+            Distance::where('job_id', $jobid)->update(['distance' => $distance, 'time' => $time]);
         }
 
         if ($admincomment || $session || $flagged || $manually_handled || $by_admin) {
-
-            $affectedRows1 = Job::where('id', '=', $jobid)->update(array('admin_comments' => $admincomment, 'flagged' => $flagged, 'session_time' => $session, 'manually_handled' => $manually_handled, 'by_admin' => $by_admin));
-
+            Job::where('id', $jobid)->update([
+                'admin_comments' => $admincomment,
+                'flagged' => $flagged,
+                'session_time' => $session,
+                'manually_handled' => $manually_handled,
+                'by_admin' => $by_admin
+            ]);
         }
 
         return response('Record updated!');
@@ -287,8 +261,31 @@ class BookingController extends Controller
             $this->repository->sendSMSNotificationToTranslator($job);
             return response(['success' => 'SMS sent']);
         } catch (\Exception $e) {
-            return response(['success' => $e->getMessage()]);
+            // changing success to error
+            // it is a good practice if you add logging in catch section
+            return response(['error' => $e->getMessage()]);
         }
     }
 
+    // Added a function to getValue
+    private function getValue($data, $key)
+    {
+        return isset($data[$key]) && $data[$key] !== "" ? $data[$key] : "";
+    }
+
+    // Added a function to getYesNoStatus
+    private function getYesNoStatus($value)
+    {
+        return $value == 'true' ? 'yes' : 'no';
+    }
+
+    // Added a function to get FlaggedStatus
+    private function getFlaggedStatus($data)
+    {
+        if ($data['flagged'] == 'true') {
+            return isset($data['admincomment']) && $data['admincomment'] == '' ? 'Please, add comment' : 'yes';
+        }
+
+        return 'no';
+    }
 }
